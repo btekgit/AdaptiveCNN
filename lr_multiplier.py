@@ -35,16 +35,19 @@ class LearningRateMultiplier(Optimizer):
         mult_lr_params = {p: self._get_multiplier(p) for p in params
                           if self._get_multiplier(p)}
         base_lr_params = [p for p in params if self._get_multiplier(p) is None]
-
+        
         updates = []
         base_lr = self._optimizer.lr
+        #print("Mult lr params", mult_lr_params)
+        #print("Base lr params", base_lr_params)
+        #print("Base lr: ", base_lr)
         for param, multiplier in mult_lr_params.items():
             self._optimizer.lr = base_lr * multiplier
             updates.extend(self._optimizer.get_updates(loss, [param]))
 
         self._optimizer.lr = base_lr
         updates.extend(self._optimizer.get_updates(loss, base_lr_params))
-
+        #print("Updates: ", updates)
         return updates
 
     def get_config(self):
