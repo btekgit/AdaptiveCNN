@@ -4,16 +4,13 @@
 Created on Thu Feb 15 12:02:20 2018
 
 @author: btek
- Version 3 can search variable names with patterns. 
- and can printanylayeroutput.
 """
 
 from __future__ import print_function
 
 import h5py
-from keras.callbacks import Callback
-import keras.backend as K
-import numpy as np
+from tensorflow.keras.callbacks import Callback
+import tensorflow.keras.backend as K
 
 def print_layer_names(model):
     for layer in model.layers:
@@ -56,7 +53,7 @@ def kdict(d,name_prefix=''):
         
 def eval_Kdict(d):
     '''evaluates all variables in a dictionary'''
-    l = [str(k)+':'+str(K.eval(v)) for k,v in d.items()]
+    l = [str(k)+':'+str(v.numpy()) for k,v in d.items()]
     return l
 
 
@@ -192,18 +189,15 @@ class WeightHistory(Callback):
 
 
 class RecordWeights(Callback):
-    def __init__(self, name, var, max_record, record_batches):
+    def __init__(self,name,var):
         self.layername = name
         self.varname = var
-        self.MAX_RECORD = max_record
-        self.current_ix = 0
-        self.record_at_batch_end = record_batches
-        self.record = []
         
     def setVariableName(self,name, var):
         self.layername = name
         self.varname = var
     def on_train_begin(self, logs={}):
+        self.record = []
         all_params = self.model.get_layer(self.layername)._trainable_weights
         all_weights = self.model.get_layer(self.layername).get_weights()
 
@@ -212,42 +206,65 @@ class RecordWeights(Callback):
             if (p.name.find(self.varname)>=0):
             #print("recording", p.name)
                 self.record.append(all_weights[i])
-                self.current_ix += 1
 
         #def on_batch_end(self, batch, logs={}):
         #    self.record.append(logs.get('loss'))
             
-#    def on_epoch_end(self,epoch, logs={}):
-#        if self.current_ix>self.MAX_RECORD:
-#            return
-#        all_params = self.model.get_layer(self.layername)._trainable_weights
-#        all_weights = self.model.get_layer(self.layername).get_weights()
-#
-#        for i,p in enumerate(all_params):
-#            #print(p.name)
-#            if (p.name.find(self.varname)>=0):
-#            #print("recording", p.name)
-#                self.record.append(all_weights[i])
-#                self.current_ix += 1
-                
-    def on_batch_end(self,epoch, logs={}):
-        if not self.record_at_batch_end or self.current_ix>self.MAX_RECORD:
-            return
+    def on_epoch_end(self,epoch, logs={}):
         all_params = self.model.get_layer(self.layername)._trainable_weights
         all_weights = self.model.get_layer(self.layername).get_weights()
 
         for i,p in enumerate(all_params):
             #print(p.name)
-            if (p.name.find(self.varname)>=0)&(self.current_ix<self.MAX_RECORD):
+            if (p.name.find(self.varname)>=0):
             #print("recording", p.name)
                 self.record.append(all_weights[i])
-                self.current_ix += 1
-                #print("\n recording weights",p.name, " at ", self.current_ix)
 
+class RecordOutput(Callback):
+    def __init__(self,model,names,stat_functions, stat_names):
+        self.output_layers = names
+        self.s_name = 's'
+        self.model = model
+        self.model.metrics_names += [self.s_name]
+        self.model.metrics_tensors += [layer.output for layer in model.layers if layer.name in self.output_layers]
+        self.stat_list = stat_functions
+        self.stat_names = stat_names
+      
+    def on_batch_begin(self, batch, logs=None):
+        self.on_batch_end(batch, logs)
+    def on_batch_end(self, batch, logs=None):
+        
+        print('log keys:', logs.keys())
+        
+        s_pred = logs[self.s_name]
+        print('s_pred:', s_pred.shape)
+        for i,p in enumerate(s_pred):
+            print(i,p)
+            stat_str = [n+str(s(p)) for s,n in zip(self.stat_list,self.stat_names)]
+            print("Stats for", p.name, stat_str)
+
+        return
 
 class RecordVariable(RecordWeights):
         #print("The name for Record Variable has changed, use RecordWeights or RecordTensor instead")
         pass
+
+class RecordTensor(Callback):
+    pass
+    def __init__(self,tensor, on_batch=True,  on_epoch=False):
+        print("Not working!")
+        self.tensor = tensor
+        self.on_batch = on_batch
+        self.on_epoch = on_epoch
+    def setVariableName(self,tensor):
+        self.layername = tensor
+    def on_train_begin(self, logs={}):
+        self.record = []
+    def on_batch_end(self, batch, logs={}):        
+        self.record.append(self.tensor.numpy())   
+    def on_epoch_end(self,epoch, logs={}):
+        self.record.append(self.tensor.numpy())
+
 
 class PrintLayerVariableStats(Callback):
     def __init__(self,name,var,stat_functions,stat_names,not_trainable=False):
@@ -286,66 +303,69 @@ class PrintLayerVariableStats(Callback):
                 print("Stats for", p.name, stat_str)
 
 
- 
-class PrintAnyOutputVariable(Callback):
-    """ New function to print layer output stats. Similar to weights. 
-        This function requires you feed an input. 
-    """
-    def __init__(self,model, output,stat_functions,stat_names,input_data_feed,axis=0):
-        
-        self.model = model
-        self.output = output
-        self.stat_list = stat_functions
-        self.stat_names = stat_names
-        self.func = K.function([self.model.input], [output])
-        self.input = input_data_feed
-        self.axis= axis
-        
+class RecordFunctionOutput(Callback):
+    def __init__(self,funct, avg=False):
+        print("Not working!")
+        self.funct = funct
+        self.sess = K.get_session()
+        self.avg=avg
+        self.count = 0
+
+
+    def setVariableName(self,funct):
+        self.funct = funct
     def on_train_begin(self, logs={}):
-        out_val = self.func([self.input, 1])[0]
-        stat_str_output = [n+str(np.mean(s(out_val,axis=0))) 
-        for s,n in zip(self.stat_list,self.stat_names)]
-        
-        print("Stats for", self.output.name, stat_str_output)
-
-        #def on_batch_end(self, batch, logs={}):
-        #    self.record.append(logs.get('loss'))
-
-    def on_epoch_end(self, epoch, logs={}):
-        out_val = self.func([self.input, 1])[0]
-        stat_str_output = [n+str(np.mean(s(out_val,axis=0)))
-        for s,n in zip(self.stat_list,self.stat_names)]
-        
-        print("Stats for", out_val.shape,self.output.name, stat_str_output)
-
-
-class RecordOutput(Callback):
-    def __init__(self,model, output,input_data_feed,max_record=1):
-        self.model = model
-        self.output = output
-        self.func = K.function([self.model.input], [output])
-        self.input = input_data_feed
-        self.MAX_RECORD = max_record
-        
-    def on_epoch_begin(self, epoch,logs={}):
-        out_val = self.func([self.input, 1])[0]
         self.record = []
-        self.record.append(out_val)
+        self.count = 0
+        if K.backend() == 'tensorflow':
+            self.sess = K.get_session()
         
-    def on_epoch_end(self, epoch, logs={}):
-        
-        if len(self.record)<self.MAX_RECORD:
-            out_val = self.func([self.input, 1])[0]
-            self.record.append(out_val)
-            
-    def on_batch_end(self, batch, logs={}):
-        if len(self.record)<self.MAX_RECORD:
-            out_val = self.func([self.input, 1])[0]
-            self.record.append(out_val)
+    def on_train_end(self, logs={}):
+        if self.avg:
+            self.record[0]/=self.count
 
-from keras.optimizers import Optimizer
+
+    def on_batch_end(self, batch, logs={}):
+
+        inp = logs['ins_batch'][0]
+        acc = self.funct([inp])
+        if self.avg and self.record:
+                self.record[0]+=acc[0]
+
+
+
+
+class PrintAnyVariable(Callback):
+
+    def __init__(self,scope, varname):
+        print("THIS DOES NOT WORK!!!!",)
+        self.scope = scope
+        self.varname = varname
+            
+    def setVariableName(self,scope, varname):
+        self.scope = scope
+        self.varname = varname
+    def on_train_begin(self, logs={}):
+        vs =[n.name for n in K.tf.get_default_graph().as_graph_def().node]
+        print(vs)
+        for v in vs:
+            if v.name ==self.varname:
+                print(":", K.get_value(v))
+
+    def on_epoch_end(self, epoch, logs={}):
+        g = K.tf.get_default_graph()
+        v = g.get_tensor_by_name(self.varname)
+        print(v)
+        vs =[n for n in K.tf.get_default_graph().as_graph_def().node]
+        for v in vs:
+            if v.name ==self.varname:
+                print(v.name)
+
+
+
+from tensorflow.keras.optimizers import Optimizer
 from six.moves import zip
-from keras.legacy import interfaces
+#from keras.legacy import interfaces
     
 class SGDwithLR(Optimizer):
     """Stochastic gradient descent optimizer with different LEARNING RATES
@@ -403,7 +423,7 @@ class SGDwithLR(Optimizer):
         self.nesterov = nesterov
         self.verbose = verbose
 
-    @interfaces.legacy_get_updates_support
+    
     def get_updates(self, loss, params):
         grads = self.get_gradients(loss, params)
 
@@ -573,7 +593,7 @@ class SGDwithCyclicLR(Optimizer):
         self.nesterov = nesterov
         self.verbose = verbose
 
-    @interfaces.legacy_get_updates_support
+    
     def get_updates(self, loss, params):
         grads = self.get_gradients(loss, params)
 
@@ -712,7 +732,7 @@ class RMSpropwithClip(Optimizer):
         self.initial_decay = decay
         self.verbose=verbose
 
-    @interfaces.legacy_get_updates_support
+    
     def get_updates(self, loss, params):
         grads = self.get_gradients(loss, params)
         accumulators = [K.zeros(K.int_shape(p), dtype=K.dtype(p)) for p in params]
@@ -793,7 +813,7 @@ class AdamwithClip(Optimizer):
         self.amsgrad = amsgrad
         self.verbose = verbose
 
-    @interfaces.legacy_get_updates_support
+    
     def get_updates(self, loss, params):
         grads = self.get_gradients(loss, params)
         self.updates = [K.update_add(self.iterations, 1)]

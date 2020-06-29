@@ -11,39 +11,36 @@ Test accuracy: 0.9837
 @author: btek
 """
 import os
-import os
-if 'CUDA_VISIBLE_DEVICES' not in os.environ.keys():
-    os.environ['CUDA_VISIBLE_DEVICES']="0"
-    os.environ['TF_FORCE_GPU_ALLOW_GROWTH']="true"
-
-from keras import backend as K
-from keras.engine.topology import Layer
-from keras.utils import conv_utils
-from keras import activations, regularizers, constraints
-from keras import initializers
-from keras.engine import InputSpec
-import numpy as np
+os.environ['CUDA_VISIBLE_DEVICES']="0"
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH']="true"
 import tensorflow as tf
-import matplotlib.pyplot as plt
-    #os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-import keras
-from keras.datasets import mnist,cifar10, fashion_mnist
-from keras.models import Sequential
-from keras.layers import Dense, Dropout, Flatten, Input, Add, ReLU
-from keras.layers import Conv2D, MaxPooling2D, AveragePooling2D, GlobalAveragePooling2D
-from keras.layers import BatchNormalization,Activation, Concatenate
-from keras.regularizers import l2,l1
-from keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
-from keras_preprocessing.image import ImageDataGenerator
-from keras.optimizers import SGD, Adadelta
-#from keras.initializers import glorot_uniform as w_ini
-from keras.initializers import he_uniform as w_ini
-from keras.initializers import VarianceScaling as VS_ini
-from keras import backend as K
-from keras_utils import RecordOutput, RecordWeights,\
-PrintLayerVariableStats, SGDwithLR, AdamwithClip, PrintAnyOutputVariable
-from keras_data import load_dataset
+import numpy as np
 
+from tensorflow.keras.layers import Layer
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras import activations, regularizers, constraints
+from tensorflow.keras import initializers
+from tensorflow.keras.layers import InputSpec
+from tensorflow.keras.datasets import mnist, cifar10, fashion_mnist
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout, Flatten, Input, Add, ReLU
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, AveragePooling2D, GlobalAveragePooling2D
+from tensorflow.keras.layers import BatchNormalization,Activation, Concatenate
+from tensorflow.keras.regularizers import l2,l1
+from tensorflow.keras.callbacks import LearningRateScheduler, ModelCheckpoint, TensorBoard
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.optimizers import SGD, Adadelta
+#from keras.initializers import glorot_uniform as w_ini
+from tensorflow.keras.initializers import he_uniform as w_ini
+from tensorflow.keras.initializers import VarianceScaling as VS_ini
+from tensorflow.keras import backend as K
+from keras_utils_tf2 import RecordVariable, \
+PrintLayerVariableStats, SGDwithLR, AdamwithClip
+
+from tensorflow.python.framework import dtypes
+from tensorflow.python.framework.ops import disable_eager_execution
+
+#disable_eager_execution()
 
 #config = tf.ConfigProto()
 #config.gpu_options.allow_growth = True
@@ -104,11 +101,11 @@ class Conv2DAdaptive(Layer):
         #def __init__(self, num_filters, kernel_sigmaze, incoming_channels=1, **kwargs):
         self.rank = rank
         self.nfilters = nfilters
-        self.kernel_size = conv_utils.normalize_tuple(kernel_size, rank, 'kernel_size')
-        self.strides = conv_utils.normalize_tuple(strides, rank, 'strides')
-        self.padding = conv_utils.normalize_padding(padding)
+        self.kernel_size = kernel_size
+        self.strides = strides
+        self.padding = padding
         self.data_format = data_format
-        self.dilation_rate = conv_utils.normalize_tuple(dilation_rate, rank, 'dilation_rate')
+        self.dilation_rate = dilation_rate,
         self.activation = activations.get(activation)
         self.kernel_regularizer = regularizers.get(kernel_regularizer)
         self.input_spec = InputSpec(ndim=self.rank + 2)
@@ -143,8 +140,7 @@ class Conv2DAdaptive(Layer):
 
         self.output_padding = output_padding
         if self.output_padding is not None:
-            self.output_padding = conv_utils.normalize_tuple(
-                self.output_padding, 2, 'output_padding')
+            #self.output_padding = self.output_padding, 2, 'output_padding')
             for stride, out_pad in zip(self.strides, self.output_padding):
                 if out_pad >= stride:
                     raise ValueError('Stride ' + str(self.strides) + ' must be '
@@ -196,25 +192,41 @@ class Conv2DAdaptive(Layer):
 
 
         self.idxs= idx_init(shape=[kernel_size[0]*kernel_size[1],2])
-
+        
+        s_init = self.sigma_initializer#((self.nfilters,),dtype='float32')
         self.Sigma = self.add_weight(shape=(self.nfilters,),
                                           name='Sigma',
-                                          initializer=self.sigma_initializer,
+                                          initializer=s_init,
                                           trainable=self.trainSigmas,
-                                          regularizer=self.sigma_regularizer)
-
+                                          constraint= constraints.NonNeg(),
+                                          regularizer=self.sigma_regularizer,
+                                          dtype='float32')
+        
+  
+        
+        
         self.W = self.add_weight(shape=[kernel_size[0],kernel_size[1],
-                                        self.input_channels, self.nfilters],
+                                        self.input_channels,self.nfilters],
                                  name='Weights',
                                  #initializer=self.weight_initializer_delta_ortho,
-                                 #initializer=initializers.,
-                                 #initializer=self.weight_initializer,
-                                 #initializer=initializers.glorot_uniform(),
+                                 #initializer=initializers.orthogonal,
                                  initializer=initializers.he_uniform(),
-                                 trainable=self.trainWeights,
+                                 trainable=True,
                                  regularizer = self.kernel_regularizer,
                                  constraint=None)
 
+
+
+#        self.gain = self.add_weight(shape=(self.nfilters,),
+#                                          name='Gain',
+#                                          initializer=initializers.constant(1.0),
+#                                          trainable=self.trainGain,
+#                                          constraint= constraints.NonNeg(),
+#                                          regularizer=None)
+#                                      initializer=initializers.,
+#                                      name='kernel',trainable=False,
+#                                      regularizer=None,
+#                                      constraint=None)
         self.kernel=None
 
         if self.use_bias:
@@ -230,16 +242,16 @@ class Conv2DAdaptive(Layer):
 
 
 
-    def calc_U(self):
+    def U(self):
 
         up= K.sum((self.idxs - self.mu)**2, axis=1)
         #print("up.shape",up.shape)
         up = K.expand_dims(up,axis=1,)
         #print("up.shape",up.shape)
-        # clipping scaler in range to prevent div by 0 
-        #sigma = K.clip(self.Sigma,0.001,1000.0) # 1000 is large number
+        # clipping scaler in range to prevent div by 0 or negative cov.
+        sigma = K.clip(self.Sigma,0.01,5.0)
         #cov_scaler = self.cov_scaler
-        dwn = 2 * ( self.Sigma ** 2)+1e-4 # 1e-4 is to prevent div by zero
+        dwn = 2 * ( sigma ** 2)
         #scaler = (np.pi*self.cov_scaler**2) * (self.idxs.shape[0])
         result = K.exp(-up / dwn)
 
@@ -252,40 +264,33 @@ class Conv2DAdaptive(Layer):
                                   self.kernel_size[1],
                                   1,self.nfilters))
 
-        if self.input_channels>1:
-            masks = K.repeat_elements(masks, self.input_channels, axis=2)
+        # removed input_channels on MAy 2020 no need for this.
+        #if self.input_channels>1:
+        #    masks = K.repeat_elements(masks, self.input_channels, axis=2)
             #print("U masks reshaped :",masks.shape)
         #print("inputs shape",inputs.shape)
 
+        #sum normalization each filter has sum 1
+        #sums = K.sum(masks**2, axis=(0, 1), keepdims=True)
+        #print(sums)
+        #gain = K.constant(self.gain, dtype='float32')
+
         #Normalize to 1
-        if self.norm == 1:
+        if self.norm > 0:
             masks /= K.sqrt(K.sum(K.square(masks), axis=(0, 1, 2),keepdims=True))
-        elif self.norm == 2:
-            masks /= K.sqrt(K.sum(K.square(masks), axis=(0, 1, 2),keepdims=True))
-            masks *= K.sqrt(K.constant(self.input_channels*self.kernel_size[0]*self.kernel_size[1]))
-            #masks *= K.sqrt(K.constant(self.kernel_size[0]*self.kernel_size[1]))
-            
-            # half of the full ones array.
-        elif self.norm == 3:
-            masks /= K.sum(masks, axis=(0, 1, 2),keepdims=True)
+        if self.norm > 1:
+            masks *= K.sqrt(K.constant(self.kernel_size[0]*self.kernel_size[1]))
+            # removed input_channels on MAy 2020 because it 
+            #masks *= K.sqrt(K.constant(self.input_channels*self.kernel_size[0]*self.kernel_size[1]))
         #Normalize to get equal to WxW Filter
         #masks *= K.sqrt(K.constant(self.input_channels*self.kernel_size[0]*self.kernel_size[1]))
         # make norm sqrt(filterw x filterh x self.incoming_channel)
         # the reason for this is if you take U all ones(self.kernel_size[0],kernel_size[1], num_channels)
         # its norm will sqrt(wxhxc)
         #print("Vars: ",self.input_channels,self.kernel_size[0],self.kernel_size[1])
-        
-        @tf.custom_gradient
-        def threshold(x):
-            leak = K.constant(1e-1,'float32')
-            y  = K.cast(x>0.5,'float32')+leak
-            #y = K.random_(shape=x.shape,p=x, dtype=x.dtype)
-            def grad(dy):
-                return dy#K.cast(dy*1.0, 'float32')
-            return y, grad
-        
+
+
         return masks
-        #return threshold(masks)
 
 
 
@@ -304,11 +309,20 @@ class Conv2DAdaptive(Layer):
         #in_channels =input_shape[c_axis]
         #print("Calling self.U:")
         self.kernel=None
-        kernel = self.calc_U()
-  
-        fiw = kernel*self.W #*self.gain#*K.tanh(self.W
+        kernel = self.U()
+        #print(K.eval(kernel))
+        # multiply with weights
+        @tf.custom_gradient
+        def samplefocus(x):
+            y = K.random_binomial(shape=x.shape,p=x, dtype=x.dtype)
+            def grad(dy):
+                return dy 
+            return y, grad
 
-        
+        fiw = samplefocus(kernel)*self.W #*self.gain#*K.tanh(self.W)
+
+        #---------------------------------------------------------------------
+        #print("Trainable weights", self._trainable_weights)
         outputs = K.conv2d(
                 inputs,
                 fiw,
@@ -317,6 +331,7 @@ class Conv2DAdaptive(Layer):
                 data_format=self.data_format,
                 dilation_rate=self.dilation_rate)
 
+        #print(outputs.shape)
 
         if self.use_bias:
             outputs = K.bias_add(
@@ -352,20 +367,20 @@ class Conv2DAdaptive(Layer):
 
     def sigma_initializer(self, shape,  dtype='float32'):
         initsigma = self.initsigma
-
-        print("Initializing sigma", type(initsigma), initsigma)
+       
+        print("Initializing sigma", type(initsigma), initsigma[0], type(dtype))
 
         if isinstance(initsigma,float):  #initialize it with the given scalar
-            sigma = initsigma*np.ones(shape[0],dtype='float32')
+            sigma = initsigma*np.ones(shape[0])
         elif (isinstance(initsigma,tuple) or isinstance(initsigma,list))  and len(initsigma)==2: #linspace in range
-            sigma = np.linspace(initsigma[0], initsigma[1], shape[0],dtype=dtype)
+            sigma = np.linspace(initsigma[0], initsigma[1], shape[0])
         elif isinstance(initsigma,np.ndarray) and initsigma.shape[1]==2 and shape[0]!=2: # set the values directly from array
-            sigma = np.linspace(initsigma[0], initsigma[1], shape[0],dtype=dtype)
+            sigma = np.linspace(initsigma[0], initsigma[1], shape[0])
         elif isinstance(initsigma,np.ndarray): # set the values directly from array
-            sigma = (initsigma).astype(dtype=dtype)
+            sigma = np.convert_to_tensor(initsigma)
         else:
             print("Default initial sigma value 0.1 will be used")
-            sigma = np.float32(0.1)*np.ones(shape[0],dtype=dtype)
+            sigma = np.float32(0.1)*np.ones(shape[0])
 
         #print("Scale initializer:",sigma)
         return sigma.astype(dtype)
@@ -376,13 +391,13 @@ class Conv2DAdaptive(Layer):
         initer = 'He'
         distribution = 'uniform'
 
-        kernel = K.eval(self.calc_U())
+        kernel = K.eval(self.U())
         print("Kernel max, mean, min: ", np.max(kernel), np.mean(kernel), np.min(kernel))
         W = np.zeros(shape=shape, dtype=dtype)
         print("kernel shape:", kernel.shape, ", W shape: ",W.shape)
         # for Each Gaussian initialize a new set of weights
         verbose=True
-        fan_out = self.nfilters*self.kernel_size[0]*self.kernel_size[1]
+        fan_out = np.prod(self.nfilters)*self.kernel_size[0]*self.kernel_size[1]
 
         for c in range(W.shape[-1]):
             fan_in = np.sum((kernel[:,:,:,c])**2)
@@ -394,34 +409,33 @@ class Conv2DAdaptive(Layer):
                 std = self.gain * sqrt32(2.0) / sqrt32(fan_in+fan_out)
                 # must be 1.0 like below
                 #std = self.gain / sqrt32(fan_in+fan_out)
+
+                # best working so far. U_ norm =1 , self.gain=0.5,glorot_uniform  with leaky relu
+
             std = np.float32(std)
             if c == 0:
                 print("Std here: ",std, type(std),W.shape[:-1],
                       " fan_in", fan_in, " fan out", fan_out,"mx U", np.max(kernel[:,:,:,c]))
-                #print("variance",np.var(w_vec))
-                input()    
-            
             if distribution == 'uniform':
                 std = std * sqrt32(3.0)
                 std = np.float32(std)
                 w_vec = np.random.uniform(low=-std, high=std, size=W.shape[:-1])
-                
             elif distribution == 'normal':
                 std = std/ np.float32(.87962566103423978)
                 w_vec = np.random.normal(scale=std, size=W.shape[:-1])
+
             W[:,:,:,c] = w_vec.astype('float32')
 
-        print(np.var(W))
         return W
     
     
     def weight_initializer_delta_ortho(self,shape, dtype='float32'):
         #only implements channel last and HE uniform
         verbose=True
-        kernel = K.eval(self.calc_U())
+        kernel = K.eval(self.U())
         W = np.zeros(shape=shape, dtype=dtype)
         if verbose:
-            print("Kernel max, mean, min: ", np.max(kernel,axis=(0,1,2)), np.mean(kernel,axis=(0,1,2)), np.min(kernel,axis=(0,1,2)))
+            print("Kernel max, mean, min: ", np.max(kernel), np.mean(kernel), np.min(kernel))
             print("kernel shape:", kernel.shape, ", W shape: ",W.shape)
             #print("num input filters must be greater than output")
             
@@ -431,10 +445,8 @@ class Conv2DAdaptive(Layer):
         # for Each Gaussian initialize a new set of weights
         
         
-        ky = shape[0]
-        kx = shape[1]
-        ki = shape[2]
-        ko = shape[3]
+        ky = self.kernel_size[0]
+        kx = self.kernel_size[0]
         
         a = np.random.normal(size=[shape[-1], shape[-1]])
         # Compute the qr factorization
@@ -448,26 +460,13 @@ class Conv2DAdaptive(Layer):
         #print(q.shape)
         #print(q)
         #print(kernel[ky//2,kx//2,:,:])
-        #W[ky//2,kx//2,ki//2,:]=q/kernel[ky//2,kx//2,ki//2,:]
-        #W = np.random.normal(loc=0.0, scale=1e-6, size=shape)
-        #W[ky//2,kx//2,ki//2,:]=q#/kernel[ky//2,kx//2,ki//2,:]#1.0*self.gain # q/ko #np.mean(q)/(ko*ko)
-        #t = 1.0/(np.prod(shape[0:3])) # was np.prod(shape)
-        #t = 0.5# shape[2]*1.0/shape[3]*0.25 # was np.prod(shape)
-        
-        if ki==1:
-            t = 0.5# shape[2]*1.0/shape[3]*0.25 # was np.prod(shape)
-        else:
-            t = 0.5# shape[2]*1.0/shape[3]*0.25 # was np.prod(shape)
-        #t = 1.0/np.sqrt(ki)
-        print("----->>>>>>>T is here:", t)
-        W[ky//2,kx//2,ki//2,:] = np.random.choice([-t,t], size=ko)+np.random.normal(0,0.001,size=ko)
-        #W[ky//2,kx//2,ki//2,:] = np.random.normal(0,t,size=ko)
+        W[ky//2,kx//2,:,:]=q/kernel[ky//2,kx//2,:,:]
         #std = np.std(W)
-        
+        #print("Std here: ",std, type(std))
         W = W.astype('float32')
-        print("Sums here: ",np.sum(np.sqrt((W*kernel)**2),axis=(0,1,2)))
-        print("Max here: ",np.max(W*kernel,axis=(0,1,2)))
-        print("Min here: ",np.min(W*kernel,axis=(0,1,2)))
+        #print("Sums here: ",np.sum(W*kernel,axis=(0,1,2)))
+        #print("Max here: ",np.max(W*kernel,axis=(0,1,2)))
+        #print("Min here: ",np.min(W*kernel,axis=(0,1,2)))
         #k = input()
        
 
@@ -499,30 +498,23 @@ def lr_schedule(epoch,lr=1e-3):
     return lr
 
 def create_2_layer_network(input_shape,  num_classes=10, settings={}):
-    from keras.models import  Model
-    from keras.layers import Input, Dense, Dropout, Flatten,Conv2D, BatchNormalization
-    from keras.layers import Activation, MaxPool2D
     from functools import partial
     network=[]
     network.append(Input(shape=input_shape))
-    #network.append(Dropout(0.2)(network[-1]))
-    #network.append(BatchNormalization()(network[-1]))
     print(input_shape)
     print(settings)
     nfilters= settings['nfilters']
     afw = settings['adaptive_kernel_size']
     if settings['test_layer']=='aconv':
-        l1 = keras.regularizers.l1
-        l2 = keras.regularizers.l2 
         Conv2F_1 = Conv2DAdaptive(rank=2,nfilters=nfilters,
                                 kernel_size=(afw,afw),
                                 data_format='channels_last',strides=1,
                                 padding='same',name='acnn-1', activation='linear',
                                 trainSigmas=True, trainWeights=True,
-                                init_sigma=[0.1,0.3],
+                                init_sigma=[0.1,0.5],
                                 gain = 1.0,
                                 kernel_regularizer=None,
-                                sigma_regularizer=None,
+                                sigma_regularizer=regularizers.l2(1e-5),
                                 init_bias=initializers.Constant(0),
                                 norm=2,use_bias=False)
         
@@ -531,19 +523,18 @@ def create_2_layer_network(input_shape,  num_classes=10, settings={}):
                                 data_format='channels_last',strides=1,
                                 padding='same',name='acnn-2', activation='linear',
                                 trainSigmas=True, trainWeights=True,
-                                init_sigma=[0.1,0.3],
-                                gain = 1.0000,
+                                init_sigma=[0.1,0.5],
+                                gain = 1.0,
                                 kernel_regularizer=None,
-                                sigma_regularizer=None,
                                 init_bias=initializers.Constant(0),
                                 norm=2,use_bias=False)
     elif settings['test_layer']=='conv':
         Conv2F_1 = Conv2D(filters=nfilters,
                          kernel_size=(afw,afw), padding='same',
-                        activation='linear',kernel_regularizer=None,use_bias=False)
+                        activation='linear')
         Conv2F_2 = Conv2D(filters=nfilters,
                          kernel_size=(afw,afw), padding='same',
-                        activation='linear',kernel_regularizer=None,use_bias=False)
+                        activation='linear')
     
     else:
         print("UNKNOWN TEST LAYER")
@@ -551,7 +542,7 @@ def create_2_layer_network(input_shape,  num_classes=10, settings={}):
     network.append(Conv2F_1(network[-1]))
     network.append(BatchNormalization()(network[-1]))
     network.append(Activation('relu')(network[-1]))
-    #network.append(Dropout(0.2)(network[-1]))
+
     network.append(Conv2F_2(network[-1]))
     network.append(BatchNormalization()(network[-1]))
     network.append(Activation('relu')(network[-1]))
@@ -574,13 +565,13 @@ def create_2_layer_network(input_shape,  num_classes=10, settings={}):
   
 
     network.append(Dense(num_classes, name='softmax', activation='softmax',
-                     kernel_initializer=heu(),
+                     kernel_initializer=initializers.he_uniform(),
                      kernel_regularizer=None)(network[-1]))
 
     #decay_check = lambda x: x==decay_epoch
 
     model = keras.models.Model(inputs=[network[0]], outputs=network[-1])
-    #x = input()
+
     return model
 
 def create_4_layer_network(input_shape,  num_classes=10, settings={}):
@@ -675,8 +666,7 @@ def test_mnist(settings,sid=9):
     K.clear_session()
     #K.set_session(sess)
     np.random.seed(sid)
-    tf.random.set_random_seed(sid)
-    tf.compat.v1.random.set_random_seed(sid)
+    tf.random.set_seed(sid)
 
 
     #dset='cifar10'
@@ -686,101 +676,92 @@ def test_mnist(settings,sid=9):
     num_classes = 10
     epochs =settings['epochs']
     test_acnn = settings['test_layer']=='aconv'
-    normalize_data = True
-    if dset=='mnist-clut':
-        normalize_data=False
 
-    ld_data = load_dataset(dset,normalize_data,options=[])
-    x_train,y_train,x_test,y_test,input_shape,num_classes=ld_data
-#
-#    if dset=='mnist':
-#        # input image dimensions
-#        img_rows, img_cols = 28, 28
-#        # the data, split between train and test sets
-#        (x_train, y_train), (x_test, y_test) = mnist.load_data()
-#        n_channels=1
-#
-#    elif dset=='cifar10':
-#        img_rows, img_cols = 32,32
-#        n_channels=3
-#
-#        (x_train, y_train), (x_test, y_test) = cifar10.load_data()
-#        
-#    elif settings['dset']=='fashion':
-#        img_rows, img_cols = 28,28
-#        n_channels=1
-#
-#        (x_train, y_train), (x_test, y_test) = fashion_mnist.load_data()
-#        
-#    elif settings['dset']=='mnist-clut':
-#        
-#        img_rows, img_cols = 60, 60  
-#        # the data, split between train and test sets
-#        
-#        folder='/media/home/rdata/image/'
-#        #folder='/home/btek/datasets/image/'
-#        data = np.load(folder+"mnist_cluttered_60x60_6distortions.npz")
-#    
-#        x_train, y_train = data['x_train'], np.argmax(data['y_train'],axis=-1)
-#        x_valid, y_valid = data['x_valid'], np.argmax(data['y_valid'],axis=-1)
-#        x_test, y_test = data['x_test'], np.argmax(data['y_test'],axis=-1)
-#        x_train=np.vstack((x_train,x_valid))
-#        y_train=np.concatenate((y_train, y_valid))
-#        n_channels=1
-#        
-#        #decay_epochs =[e_i*30,e_i*100]
-#            
-#    elif settings['dset']=='lfw_faces':
-#        from sklearn.datasets import fetch_lfw_people
-#        lfw_people = fetch_lfw_people(min_faces_per_person=20, resize=0.4)
-#        
-#        # introspect the images arrays to find the shapes (for plotting)
-#        n_samples, img_rows, img_cols = lfw_people.images.shape
-#        n_channels=1
-#        
-#        X = lfw_people.data
-#        n_features = X.shape[1]
-#        
-#        # the label to predict is the id of the person
-#        y = lfw_people.target
-#        target_names = lfw_people.target_names
-#        n_classes = target_names.shape[0]
-#        
-#        print("Total dataset size:")
-#        print("n_samples: %d" % n_samples)
-#        print("n_features: %d" % n_features)
-#        print("n_classes: %d" % n_classes)
-#               
-#
-#        
-#
-#    if K.image_data_format() == 'channels_first':
-#        x_train = x_train.reshape(x_train.shape[0], n_channels, img_rows, img_cols)
-#        x_test = x_test.reshape(x_test.shape[0], n_channels, img_rows, img_cols)
-#        input_shape = (n_channels, img_rows, img_cols)
-#    else:
-#        x_train = x_train.reshape(x_train.shape[0], img_rows, img_cols, n_channels)
-#        x_test = x_test.reshape(x_test.shape[0], img_rows, img_cols, n_channels)
-#        input_shape = (img_rows, img_cols, n_channels)
-#
-#    x_train = x_train.astype('float32')
-#    x_test = x_test.astype('float32')
-#    if settings['dset']!='mnist-clut':
-#        x_train /= (255/4)
-#        x_test /= (255/4)
-#        x_train -= 2.0
-#        x_test  -=  2.0
-#    # trn_mn = np.mean(x_train, axis=0)
-#    # x_train -= trn_mn
-#    # x_test -= trn_mn
-#    
-#    print('x_train shape:', x_train.shape)
-#    print(x_train.shape[0], 'train samples')
-#    print(x_test.shape[0], 'test samples')
-#
-#    # convert class vectors to binary class matrices
-#    y_train = keras.utils.to_categorical(y_train, num_classes)
-#    y_test = keras.utils.to_categorical(y_test, num_classes)
+
+    if dset=='mnist':
+        # input image dimensions
+        img_rows, img_cols = 28, 28
+        # the data, split between train and test sets
+        (x_train, y_train), (x_test, y_test) = mnist.load_data()
+        n_channels=1
+
+    elif dset=='cifar10':
+        img_rows, img_cols = 32,32
+        n_channels=3
+
+        (x_train, y_train), (x_test, y_test) = cifar10.load_data()
+        
+    elif settings['dset']=='fashion':
+        img_rows, img_cols = 28,28
+        n_channels=1
+
+        (x_train, y_train), (x_test, y_test) = fashion_mnist.load_data()
+        
+    elif settings['dset']=='mnist-clut':
+        
+        img_rows, img_cols = 60, 60  
+        # the data, split between train and test sets
+        
+        folder='/media/home/rdata/image/'
+        #folder='/home/btek/datasets/image/'
+        data = np.load(folder+"mnist_cluttered_60x60_6distortions.npz")
+    
+        x_train, y_train = data['x_train'], np.argmax(data['y_train'],axis=-1)
+        x_valid, y_valid = data['x_valid'], np.argmax(data['y_valid'],axis=-1)
+        x_test, y_test = data['x_test'], np.argmax(data['y_test'],axis=-1)
+        x_train=np.vstack((x_train,x_valid))
+        y_train=np.concatenate((y_train, y_valid))
+        n_channels=1
+        
+        #decay_epochs =[e_i*30,e_i*100]
+            
+    elif settings['dset']=='lfw_faces':
+        from sklearn.datasets import fetch_lfw_people
+        lfw_people = fetch_lfw_people(min_faces_per_person=20, resize=0.4)
+        
+        # introspect the images arrays to find the shapes (for plotting)
+        n_samples, img_rows, img_cols = lfw_people.images.shape
+        n_channels=1
+        
+        X = lfw_people.data
+        n_features = X.shape[1]
+        
+        # the label to predict is the id of the person
+        y = lfw_people.target
+        target_names = lfw_people.target_names
+        n_classes = target_names.shape[0]
+        
+        print("Total dataset size:")
+        print("n_samples: %d" % n_samples)
+        print("n_features: %d" % n_features)
+        print("n_classes: %d" % n_classes)
+               
+
+        
+
+    if K.image_data_format() == 'channels_first':
+        x_train = x_train.reshape(x_train.shape[0], n_channels, img_rows, img_cols)
+        x_test = x_test.reshape(x_test.shape[0], n_channels, img_rows, img_cols)
+        input_shape = (n_channels, img_rows, img_cols)
+    else:
+        x_train = x_train.reshape(x_train.shape[0], img_rows, img_cols, n_channels)
+        x_test = x_test.reshape(x_test.shape[0], img_rows, img_cols, n_channels)
+        input_shape = (img_rows, img_cols, n_channels)
+
+    x_train = x_train.astype('float32')
+    x_test = x_test.astype('float32')
+    x_train /= 255
+    x_test /= 255
+    trn_mn = np.mean(x_train, axis=0)
+    x_train -= trn_mn
+    x_test -= trn_mn
+    print('x_train shape:', x_train.shape)
+    print(x_train.shape[0], 'train samples')
+    print(x_test.shape[0], 'test samples')
+
+    # convert class vectors to binary class matrices
+    y_train = to_categorical(y_train, num_classes)
+    y_test = to_categorical(y_test, num_classes)
 
     if settings['arch']=='simple':
         model = create_2_layer_network(input_shape, num_classes, settings)
@@ -814,85 +795,67 @@ def test_mnist(settings,sid=9):
 
     #
     #           'acnn-2/Sigma:0': 0.00001,'acnn-2/Weights:0': 1.0}
-    lr_dict = {'all':0.1,'Sigma':0.1,'Weights':0.1}
+    lr_dict = {'all':0.1}
     for i in lr_dict.keys(): 
         lr_dict[i]*=settings['lr_multiplier']
         
     mom_dict = {'all':0.9}
-    clip_dict = {'Sigma': [0.10, 2.0]}
-    decay_dict = {'all':0.9, 'Sigma':0.9}  # mnist cifar fashion results were taken with Sigma 0.1 decay
+    clip_dict = {'Sigma': [0.05, 2.0]}
+    decay_dict = {'all':0.1}
     e_i = x_train.shape[0] // batch_size
 
-    decay_epochs =np.array([e_i*20,e_i*40,e_i*60,e_i*80], dtype='int64')
-    #decay_epochs =np.array([e_i*50], dtype='int64')
+    decay_epochs =np.array([e_i*20,e_i*80], dtype='int64')
     #print("WHAT THE ", lr_dict)
     opt = SGDwithLR(lr=lr_dict, momentum = mom_dict, decay=decay_dict,
-                   clips=clip_dict,decay_epochs=decay_epochs, 
-                   verbose=2, clipvalue=1.0)
+                    clips=clip_dict,decay_epochs=decay_epochs, 
+                    verbose=2, update_clip=1.0)
+    
+    
+    #opt = AdamwithClip(clips=clip_dict,clipvalue=1.0)
     
 
+
+#    chkpt= keras.callbacks.ModelCheckpoint('best-model.h5',
+#                                    monitor='val_acc',
+#                                    verbose=1,
+#                                    save_best_only=True,
+#                                    save_weights_only=True,
+#                                    mode='max', period=1)
+
+
+#    tb = TensorBoard(log_dir='./tb_logs/mnist/acnn-res-lr5',
+#                     histogram_freq = 1,
+#                     write_grads=True,
+#                     write_graph=False)
+    #callbacks = [tb]
+    
     stat_func_name = ['max: ', 'mean: ', 'min: ', 'var: ', 'std: ']
     stat_func_list = [np.max, np.mean, np.min, np.var, np.std]
     
     callbacks = []
-    silent_mode = True
-    if not silent_mode:
 
-        if test_acnn:
-            pr_1 = PrintLayerVariableStats("acnn-1","Weights:0",stat_func_list,stat_func_name)
-            pr_2 = PrintLayerVariableStats("acnn-2","Weights:0",stat_func_list,stat_func_name)
-    
-            pr_3 = PrintLayerVariableStats("acnn-1","Sigma:0",stat_func_list,stat_func_name)
-            pr_4 = PrintLayerVariableStats("acnn-1","bias:0",stat_func_list,stat_func_name)
-            rv_weights_1 = RecordWeights("acnn-1","Weights:0",2000,record_batches=True)
-            rv_sigma_1 = RecordWeights("acnn-1","Sigma:0",2000,record_batches=True)
-            pr_out1 = PrintAnyOutputVariable(model,model.get_layer("acnn-1").output,
-                                            stat_func_list, stat_func_name,
-                                            x_test[0:-1:100])
-            
-            pr_out2= PrintAnyOutputVariable(model,model.get_layer("acnn-2").output,
-                                            stat_func_list, stat_func_name,
-                                            x_test[0:-1:100])
-            
-            rc_out1 = RecordOutput(model,model.get_layer("acnn-1").output,
-                                            x_test[0:-1:100],1)
-            
-            rc_out2 = RecordOutput(model,model.get_layer("acnn-2").output,
-                                            x_test[0:-1:100],1)
-            
-    
-            callbacks+=[pr_1, pr_2, pr_3, pr_4, rv_weights_1, rv_sigma_1]
-            #callbacks+=[pr_1,pr_2, pr_3] #,rv_weights_1,rv_sigma_1]
-        else:
-            #pr_1 = PrintLayerVariableStats("conv2d_3","kernel:0",stat_func_list,stat_func_name)
-            #rv_weights_1 = RecordVariable("conv2d_3","kernel:0")
-            pr_out1 = PrintAnyOutputVariable(model,model.get_layer("conv2d_1").output,
-                                            stat_func_list, stat_func_name,
-                                            x_test[0:-1:100])
-            
-            pr_out2= PrintAnyOutputVariable(model,model.get_layer("conv2d_2").output,
-                                            stat_func_list, stat_func_name,
-                                            x_test[0:-1:100])
-            
-            rc_out1 = RecordOutput(model,model.get_layer("conv2d_1").output,
-                                            x_test[0:-1:100],1)
-            
-            rc_out2 = RecordOutput(model,model.get_layer("conv2d_2").output,
-                                            x_test[0:-1:100],1)
-            
-            
-            #callbacks+=[pr_1, rv_weights_1]
-            #pr_3 = PrintLayerVariableStats("conv2d_1","kernel:0",stat_func_list,stat_func_name)
-            #rv_kernel = RecordVariable("conv2d_1","kernel:0")
-            #callbacks+=[pr_3,rv_kernel]
-            
-        pr_4 = PrintLayerVariableStats("batch_normalization_1","moving_mean:0",
-                                           stat_func_list,stat_func_name,not_trainable=True)
-        pr_5 = PrintLayerVariableStats("batch_normalization_1","moving_variance:0",
-                                           stat_func_list,
-                                           stat_func_name,not_trainable=True)
-        #callbacks+=[pr_out1, pr_out2, pr_4,pr_5] #,rc_out1,rc_out2
-    #print("CALLBACKS:",callbacks)
+    if test_acnn:
+        pr_1 = PrintLayerVariableStats("acnn-1","Weights:0",stat_func_list,stat_func_name)
+        pr_2 = PrintLayerVariableStats("acnn-1","Sigma:0",stat_func_list,stat_func_name)
+        pr_3 = PrintLayerVariableStats("acnn-1","bias:0",stat_func_list,stat_func_name)
+        #rv_weights_1 = RecordVariable("acnn-1","Weights:0")
+        #rv_sigma_1 = RecordVariable("acnn-1","Sigma:0")
+        callbacks+=[pr_1,pr_2, pr_3] #,rv_weights_1,rv_sigma_1]
+    else:
+        #pr_1 = PrintLayerVariableStats("conv2d_3","kernel:0",stat_func_list,stat_func_name)
+        #rv_weights_1 = RecordVariable("conv2d_3","kernel:0")
+        pass
+        #callbacks+=[pr_1, rv_weights_1]
+        #pr_3 = PrintLayerVariableStats("conv2d_1","kernel:0",stat_func_list,stat_func_name)
+        #rv_kernel = RecordVariable("conv2d_1","kernel:0")
+        #callbacks+=[pr_3,rv_kernel]
+    pr_4 = PrintLayerVariableStats("batch_normalization_1","moving_mean:0",
+                                       stat_func_list,stat_func_name,not_trainable=True)
+    pr_5 = PrintLayerVariableStats("batch_normalization_1",
+                                       "moving_variance:0",
+                                       stat_func_list,
+                                       stat_func_name,not_trainable=True)
+    callbacks+=[pr_4,pr_5] 
     print("CALLBACKS:",callbacks)
     
     #print("TRAINABLE WEIGHTS:",model.trainable_weights)
@@ -905,81 +868,10 @@ def test_mnist(settings,sid=9):
 
     #print(opt)
     #opt = SGD(lr=0.01,momentum=0.9)
-    
-#    def customloss(lays):
-#        def loss(y_true, y_pred):
-#        # Use x here as you wish
-#            a = K.categorical_crossentropy(y_true,y_pred)
-#            mn_a = K.mean(a)
-#            print("MN-a-shape",mn_a.shape)
-#            mn_z = tf.zeros_like(mn_a)
-#            err = mn_a#K.constant(0,'float32')
-#            for l in lays:
-#                b= K.mean(K.square(l.W*(1.0 - l.U())))
-#                c= K.mean(l.Sigma)
-#                err += tf.clip_by_value(b,mn_z,mn_a*1.0)
-#                err += tf.clip_by_value(c,mn_z,mn_a*1.0)
-#            
-#            #err += 1e-2*K.mean(K.abs(lay.W))
-#            return err
-#
-#        return loss
-    
-    def uw_ol(y_true,y_pred):
-        # This function calculates overlap of U with Weights as a Loss
-        # 3D structure???
-        r = K.constant(0)
-        #k = K.constant(0)
-        lays =[model.get_layer('acnn-1'),model.get_layer('acnn-2')]
-        for l in lays:
-            r+=K.mean(K.square(l.W*(1.0 - l.calc_U())))
-            #k+=K.mean(l.Sigma)     
-        return r
-    
-    
-    def si(y_true,y_pred):
-        #add si mean to loss, for reqularization ? ?
-        k = K.constant(0)
-        #k = K.constant(0)
-        lays =[model.get_layer('acnn-1'),model.get_layer('acnn-2')]
-        for l in lays:
-            #k+=K.mean(K.square(l.W*(1.0 - l.U())))
-            k+=K.mean(l.Sigma)
-            
-        return k#,k
-    def customloss(lays):
-        def loss(y_true, y_pred):
-        # Use x here as you wish
-            err = K.categorical_crossentropy(y_true,y_pred)
-            #return err
-            for l in lays:
-                #b = K.mean(K.square(l.W*(1.0 - l.U())))
-                #err += b
-                c = 1e-4*K.mean(l.Sigma)
-                err += c
-            #err += 1e-2*K.mean(K.abs(lay.W))
-            return err
+    model.compile(loss=keras.losses.categorical_crossentropy,
+                  optimizer=opt,
+                  metrics=['accuracy'])
 
-        return loss    
-    if test_acnn:
-        alayers = [model.get_layer('acnn-1'), model.get_layer('acnn-2')]
-        model.compile(loss='categorical_crossentropy',#customloss(alayers),
-                      optimizer=opt,
-                      metrics=['accuracy',uw_ol,si])
-    else:
-        model.compile(loss='categorical_crossentropy',
-                      optimizer=opt,
-                      metrics=['accuracy'])
-        
-    
-    score = model.evaluate(x_train, y_train, verbose=0)
-    print('Pretraining loss:', score[0])
-    print('Pretraining accuracy:', score[1])
-    
-    from keras.utils import plot_model
-    plot_model(model,'figures/may2020/simple_model.png', show_shapes=True, show_layer_names=False)
-    input('wairing')
-    
     plot_this = False
     if plot_this and test_acnn:
         print("Plotting kernels before...")
@@ -987,7 +879,7 @@ def test_mnist(settings,sid=9):
         acnn_layer = model.get_layer('acnn-1')
         ws = acnn_layer.get_weights()
         print("Sigmas before",ws[0])
-        u_func = K.function(inputs=[model.input], outputs=[acnn_layer.calc_U()])
+        u_func = K.function(inputs=[model.input], outputs=[acnn_layer.U()])
         output_func = K.function(inputs=[model.input], outputs=[acnn_layer.output])
 
         U_val=u_func([np.expand_dims(x_test[0], axis=0)])
@@ -1000,8 +892,8 @@ def test_mnist(settings,sid=9):
             ax1=plt.subplot(1, num_filt, i+1)
             im = ax1.imshow(np.squeeze(U_val[0][:,:,0,i]))
         fig.colorbar(im, ax=ax1)
-        plt.title('U_val before')
-        plt.show(block=False)   
+
+        plt.show(block=False)
 
         fig=plt.figure(figsize=(20,8))
         num_show = min(U_val[0].shape[3],12)
@@ -1011,9 +903,8 @@ def test_mnist(settings,sid=9):
             #print("U -shape: ", acnn_layer.U().shape,type(K.eval(acnn_layer.U()[:,:,0,i])))
             #print("Prod-shape", (ws[1][:,:,0,i]*acnn_layer.U()[:,:,0,i]).shape)
             plt.imshow(np.float32(ws[1][:,:,0,indices[i]]*
-                                  K.eval(acnn_layer.calc_U()[:,:,0,indices[i]])))
-        
-        plt.title('UW_val before')
+                                  K.eval(acnn_layer.U()[:,:,0,indices[i]])))
+
         plt.show(block=False)
 
     # Run training, with or without data augmentation.
@@ -1043,15 +934,15 @@ def test_mnist(settings,sid=9):
             # epsilon for ZCA whitening
             zca_epsilon=1e-06,
             # randomly rotate images in the range (deg 0 to 180)
-            rotation_range=0,
+            rotation_range=5,
             # randomly shift images horizontally
-            width_shift_range=0.2,
+            width_shift_range=0.1,
             # randomly shift images vertically
-            height_shift_range=0.2,
+            height_shift_range=0.1,
             # set range for random shear
-            shear_range=0.0,
+            shear_range=0.,
             # set range for random zoom
-            zoom_range=0.1,
+            zoom_range=0.0,
             # set range for random channel shifts
             channel_shift_range=0.,
             # set mode for filling points outside the input boundaries
@@ -1086,38 +977,13 @@ def test_mnist(settings,sid=9):
     print('Test loss:', score[0])
     print('Test accuracy:', score[1])
     
-    plot_output_dists=False
-    
 
-    if plot_output_dists:
-        np.savez_compressed('output.npz',r1=rc_out1.record,r2=rc_out2.record)
-        recs= [rc_out1, rc_out2]
-        for r in recs:
-            rv_output_arr = np.array(r.record)
-            print(rv_output_arr.shape)
-            rv_kernel_arr2d = np.reshape(rv_output_arr,
-                                (rv_output_arr.shape[0],
-                                 np.prod(rv_output_arr.shape[1:])))
-            print(rv_kernel_arr2d.shape)
-            fig=plt.figure(figsize=(10,8))
-            klist=range(rv_kernel_arr2d.shape[0])
-            for i in klist:
-                plt.hist(rv_kernel_arr2d[i].flatten(), alpha=0.5)
-            plt.title('outputs2d')
-            plt.show()
-        plt.imshow(np.var(rc_out1[10,:,:,:,5],axis=0)), 
-        plt.colorbar()
-        plt.show()
-        plt.imshow(np.var(rc_out2[10,:,:,:,5],axis=0))
-        plt.colorbar()
-        plt.show()
-        
-    plot_this=True
+    plot_this=False
     if plot_this and test_acnn:
         print("Plotting kernels after ...")
 
         print("U max:", np.max(U_val[0][:,:,:,:]))
-        
+        import matplotlib.pyplot as plt
         ws = acnn_layer.get_weights()
         print("Sigmas after",ws[0])
         U_val=u_func([np.expand_dims(x_test[2], axis=0)])
@@ -1132,43 +998,16 @@ def test_mnist(settings,sid=9):
             ax=plt.subplot(1, num_filt, i+1)
             kernel_u = U_val[0][:,:,0,indices[i]]
             im = ax.imshow(np.squeeze(kernel_u))
-            #plt.colorbar()
             print("kernel mean,var,max,min",np.mean(kernel_u),
                                            np.var(kernel_u),
                                            np.max(kernel_u), np.min(kernel_u))
-        fig.colorbar(im, ax=ax)
+        #fig.colorbar(im, ax=ax1)
         plt.show(block=False)
 
 
         print("outputs  ...")
 
-        n = 5
-        
-        print("Weights")
-        fig=plt.figure(figsize=(20,8))
-        num_show = min(U_val[0].shape[3],12)
-        indices = np.int32(np.linspace(0,U_val[0].shape[3]-1,num_show))
-        for i in range(num_show):
-            ax1=plt.subplot(1, num_filt, i+1)
-            #print("U -shape: ", acnn_layer.U().shape,type(K.eval(acnn_layer.U()[:,:,0,i])))
-            #print("Prod-shape", (ws[1][:,:,0,i]*acnn_layer.U()[:,:,0,i]).shape)
-            plt.imshow(np.float32(ws[1][:,:,0,indices[i]]))
-            
-        plt.colorbar()
-        plt.show(block=False)
-
-        print("ACNN Filters after")
-        fig=plt.figure(figsize=(20,8))
-        num_show = min(U_val[0].shape[3],32)
-        indices = np.int32(np.linspace(0,U_val[0].shape[3]-1,num_show))
-        for i in range(num_show):
-            plt.subplot(num_show//8, 8, i+1)
-            #print("U -shape: ", acnn_layer.U().shape,type(K.eval(acnn_layer.U()[:,:,0,i])))
-            #print("Prod-shape", (ws[1][:,:,0,i]*acnn_layer.U()[:,:,0,i]).shape)
-            plt.imshow(np.float32(ws[1][:,:,0,indices[i]]*
-                                  K.eval(acnn_layer.calc_U()[:,:,0,indices[i]])))
-
-        plt.show(block=False)
+        n=5
 
         out_val=output_func([np.expand_dims(x_test[5], axis=0)])
         print("Outputs shape", out_val[0].shape)
@@ -1191,9 +1030,32 @@ def test_mnist(settings,sid=9):
             #plt.colorbar(im,ax=ax)
         plt.show(block=False)
 
-        
+        print("Weights")
+        fig=plt.figure(figsize=(20,8))
+        num_show = min(U_val[0].shape[3],12)
+        indices = np.int32(np.linspace(0,U_val[0].shape[3]-1,num_show))
+        for i in range(num_show):
+            ax1=plt.subplot(1, num_filt, i+1)
+            #print("U -shape: ", acnn_layer.U().shape,type(K.eval(acnn_layer.U()[:,:,0,i])))
+            #print("Prod-shape", (ws[1][:,:,0,i]*acnn_layer.U()[:,:,0,i]).shape)
+            plt.imshow(np.float32(ws[1][:,:,0,indices[i]]),cmap='gray')
 
-        '''
+        plt.show(block=False)
+
+        print("ACNN Filters after")
+        fig=plt.figure(figsize=(20,8))
+        num_show = min(U_val[0].shape[3],12)
+        indices = np.int32(np.linspace(0,U_val[0].shape[3]-1,num_show))
+        for i in range(num_show):
+            ax1=plt.subplot(1, num_filt, i+1)
+            #print("U -shape: ", acnn_layer.U().shape,type(K.eval(acnn_layer.U()[:,:,0,i])))
+            #print("Prod-shape", (ws[1][:,:,0,i]*acnn_layer.U()[:,:,0,i]).shape)
+            plt.imshow(np.float32(ws[1][:,:,0,indices[i]]*
+                                  K.eval(acnn_layer.U()[:,:,0,indices[i]])),cmap='gray')
+
+        plt.show(block=False)
+
+
         cnn_layer = model.get_layer('conv2d_1')
         wcnn = cnn_layer.get_weights()
         print("CNN Filters of", cnn_layer)
@@ -1207,7 +1069,7 @@ def test_mnist(settings,sid=9):
             plt.imshow(np.float32(wcnn[0][:,:,0,indices[i]]),cmap='gray')
 
         plt.show(block=False)
-        '''
+
 
         rv_sigma_arr = np.array(rv_sigma_1.record)
         fig=plt.figure(figsize=(4,8))
@@ -1216,8 +1078,9 @@ def test_mnist(settings,sid=9):
         plt.show(block=False)
 
         rv_weights_arr = np.array(rv_weights_1.record)
-        w_shape2d=(rv_weights_arr.shape[0], int(np.prod(rv_weights_arr.shape[1:])))
-        rv_weights_arr2d = np.reshape(rv_weights_arr,w_shape2d)
+        rv_weights_arr2d = np.reshape(rv_weights_arr,
+                            (rv_weights_arr.shape[0],
+                             np.prod(rv_weights_arr.shape[1:])))
         print(rv_weights_arr.shape)
         fig=plt.figure(figsize=(4,8))
         klist=[1,1,5,9,12,15,18,25,32,132,1132]
@@ -1227,7 +1090,7 @@ def test_mnist(settings,sid=9):
         plt.show(block=False)
 
 
-        '''
+
         rv_kernel_arr = np.array(rv_kernel.record)
         rv_kernel_arr2d = np.reshape(rv_kernel_arr,
                             (rv_kernel_arr.shape[0],
@@ -1239,7 +1102,7 @@ def test_mnist(settings,sid=9):
             plt.plot(rv_kernel_arr2d[:,i])
         plt.title('weights-conv2d-1')
         plt.show(block=False)
-        '''
+        
     return score, history, model, callbacks
 
 
@@ -1268,13 +1131,14 @@ def repeated_trials(settings):
 
 
 if __name__ == '__main__':
-
+    #import test_filters
+    #exit()
     import sys
-    kwargs = {'dset':'mnist', 'arch':'simple', 'repeats':5, 
+    kwargs = {'dset':'mnist', 'arch':'simple', 'repeats':1, 
               'test_layer':'aconv',
-              'epochs':2, 'batch':128, 'exname':'noname', 
-              'adaptive_kernel_size':7, 'nfilters':32, 
-              'data_augmentation':False, 'lr_multiplier':0.1}
+              'epochs':1, 'batch':256, 'exname':'noname', 
+              'adaptive_kernel_size':5, 'nfilters':16, 
+              'data_augmentation':False, 'lr_multiplier':1.0}
     # For MNIST YOU CAN USE lr_multiplier 1.0, 
     # FOR OTHER USE lr_multiplier 0.1 or lower
     if len(sys.argv) > 1:
@@ -1310,6 +1174,7 @@ if __name__ == '__main__':
         print("lr_multiplier", float(sys.argv[11]))
 
     r = repeated_trials(kwargs)
+    #print(r)
     
     import time 
     delayed_start = 0 
