@@ -1,5 +1,5 @@
 # AdaptiveCNN
-Repo for Adaptive Convolution Kernel for Artificial Neural Networks
+### Repo for Adaptive Convolution Kernel for Artificial Neural Networks
 
 https://arxiv.org/abs/2009.06385
 
