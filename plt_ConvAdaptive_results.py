@@ -46,18 +46,18 @@ def plot_results(in_list, ylims=[0,1.0], xlims=None, name='val_acc'):
     #          '#bcbd22', '#17becf','#000f0a']
     cmaps = {'conv_7x7':'b', 'conv_5x5':'g', 'aconv_5x5':'r', 'aconv_3x3':'c', 
              'conv_3x3':'m', 'aconv_9x9':'#8c564b', 
-             'conv_9x9':'#3f0f0f','aconv_7x7':'k'}
+             'conv_9x9':'y','aconv_7x7':'k'}
     leg =[]
     
     mxcol =-1.0
     for ii,df in enumerate(in_list):
         ex_name = df.split('/')[-1]
-        print(ex_name)
+        #print(ex_name)
         fsize= int(ex_name[ex_name.find('x')+1])
         
         if fsize>mxcol:
             mxcol=float(fsize)
-    print(mxcol)
+    #print(mxcol)
     name_list = []
     scores_list = []
     max_scores_list = []
@@ -74,9 +74,7 @@ def plot_results(in_list, ylims=[0,1.0], xlims=None, name='val_acc'):
         #mean_scores = np.mean(np.reshape(mx_scores,(-1,N_repeat)),axis=1)
         scores_list.append(mx_scores)
         max_scores_list.append([mean_mx_scores,std_mx_scores,mx_mx_scores])
-        print("Mean Scores:",mean_mx_scores)
-        print("Std Scores:",std_mx_scores)
-        print("Max Scores:",mx_mx_scores)
+        print("Mean Scores: ",mean_mx_scores," Std Scores: ",std_mx_scores," Max Scores: ",mx_mx_scores)
         
         
         val_acc = np.array([ v[name] for v in res])
@@ -100,7 +98,7 @@ def plot_results(in_list, ylims=[0,1.0], xlims=None, name='val_acc'):
             col = cmaps[le]
             plt.plot(mn,linewidth=2.0,linestyle='--',c=col)
                 
-        plt.fill_between(np.linspace(0,mn.shape[0],mn.shape[0]),y1=st_n,y2=st_p, alpha=0.25) 
+        plt.fill_between(np.linspace(0,mn.shape[0],mn.shape[0]),y1=st_n,y2=st_p, alpha=0.1) 
         
         
         leg.append(le)
@@ -109,12 +107,43 @@ def plot_results(in_list, ylims=[0,1.0], xlims=None, name='val_acc'):
     plt.grid('on')
     plt.ylim(ylims)
     plt.xlim(xlims)
+    plt.xlabel('Epoch')
+    name = name.capitalize()
+    print(name)
+    if name=='Val_acc':
+        name=name.replace('Val_acc','Validation accuracy')
+    elif name=='Val_accuracy':
+        name=name.replace('Val_','Validation ')
+    plt.ylabel(name)
     plt.show()
     
     print(np.array(scores_list))
+    for n,s in zip(name_list,scores_list):
+        print(n,":",s)
     ar = np.array(max_scores_list)
-    print(ar)
-    print("Max score:",name_list[np.argmax(ar[:,2])])
+    #print(ar)
+    print("Max Max score:",name_list[np.argmax(ar[:,2])],np.max(ar[:,2]))
+    print("Max Mean score:",name_list[np.argmax(ar[:,0])],np.max(ar[:,0]))
+    
+    return name_list, scores_list
+    
+def t_test__patterns(name_list,scores_list, patterns=[]):
+    
+    from scipy.stats import ttest_ind
+    # for each pair in patterns it calculates t_tests
+    # pattern is an array of string pairs.
+    # p[0] is the first name, p[1] is the second name
+    
+    for p in patterns:
+        i1 = name_list.index(p[0])
+        i2 = name_list.index(p[1])
+        
+        print("T-test for pair:", p[0], ":", p[1], ttest_ind(scores_list[i1], scores_list[i2]))
+        print("Stats for pair mx, mn,std", np.max(scores_list[i1]),np.mean(scores_list[i1]), 
+              np.std(scores_list[i1]),"\n",
+              np.max(scores_list[i2]),
+              np.mean(scores_list[i2]),
+              np.std(scores_list[i2]))
 
 # In[5]:
 
@@ -186,31 +215,51 @@ plot_results(resnet_cif_do_list,[0.50,0.935])
 
 # In[may2020]:
 
+def add_to_cumplot(scr_list, i,m ,xlims=[0.9,1.0],ylims=[0.9,1.0],lab=None):
+    f = plt.figure(633)
+    ax = f.gca()
+    ax.plot([0.7,1.0],[0.7,1.0],'--', alpha=0.5)  
+    ax.plot(np.array(scr_list)[1:i],np.array(scr_list)[i+1:],m, alpha=0.5,label=lab)
+    ax.set_xlim(xlims)
+    ax.set_ylim(ylims)
+    f.legend()
+    
+
+
 
 mnist_list = get_file_list('outputs/may2020/mnist')
-plot_results(mnist_list,[0.991,0.996])
+nm_list, scr_list = plot_results(mnist_list,[0.987,0.996])
+t_test__patterns(nm_list,scr_list,[('aconv_7x7','conv_7x7')])
 plot_results(mnist_list,ylims=[0.,0.02],name='loss')
 plot_results(mnist_list,ylims=[0.015,0.03],name='val_loss')
+add_to_cumplot(scr_list,4,'r*',xlims=[0.75,1.0],ylims=[0.75,1.0],lab='mnist')
 
 cifar_list = get_file_list('outputs/may2020/cifar10')
-plot_results(cifar_list,[0.74,0.795])
+nm_list, scr_list = plot_results(cifar_list,[0.74,0.795])
+t_test__patterns(nm_list,scr_list,[('aconv_9x9','conv_9x9')])
 plot_results(cifar_list,ylims=[0.3,0.6],name='loss')
 plot_results(cifar_list,ylims=[0.6,1.0],name='val_loss')
+add_to_cumplot(scr_list,4,'b+',xlims=[0.75,1.0],ylims=[0.75,1.0],lab='cifar')
 
 
 fashion_list = get_file_list('outputs/may2020/fashion')
-plot_results(fashion_list,[0.925,0.941])
+nm_list, scr_list =plot_results(fashion_list,[0.925,0.941])
+t_test__patterns(nm_list,scr_list,[('aconv_9x9','conv_9x9')])
 plot_results(fashion_list,ylims=[0.09,0.3],name='loss')
+add_to_cumplot(scr_list,4,'cp',xlims=[0.75,1.0],ylims=[0.75,1.0],lab='fashion')
 
 clut_list = get_file_list('outputs/may2020/mnist-clut')
-plot_results(clut_list,[0.82,0.96])
+nm_list, scr_list =plot_results(clut_list,[0.82,0.96])
+t_test__patterns(nm_list,scr_list,[('aconv_9x9','conv_9x9')])
 plot_results(clut_list,ylims=[0.00,0.2],name='loss')
-
+add_to_cumplot(scr_list,4,'gs',xlims=[0.75,1.0],ylims=[0.75,1.0],lab='clut')
 
 faces_list = get_file_list('outputs/may2020/faces/lr001/old')
-plot_results(faces_list,[0.75,0.85])
+nm_list, scr_list = plot_results(faces_list,[0.75,0.85])
+t_test__patterns(nm_list,scr_list,[('aconv_9x9','conv_9x9')])
 plot_results(faces_list,ylims=[0.0,0.3],name='loss')
-
+plot_results(faces_list,ylims=[0.0,1.5],name='val_loss')
+add_to_cumplot(scr_list,4,'rd',xlims=[0.75,1.0],ylims=[0.75,1.0],lab='faces')
 
 #faces_list = get_file_list('outputs/may2020/faces/lr001/sigma_decay_slower')
 #plot_results(faces_list,[0.75,0.86])
@@ -219,22 +268,115 @@ plot_results(faces_list,ylims=[0.0,0.3],name='loss')
 
 
 resnet_mnist_list = get_file_list('outputs/may2020/resnet/mnist')
-plot_results(resnet_mnist_list,[0.9825,0.998])
+nm_list, scr_list = plot_results(resnet_mnist_list,[0.9850,0.998])
+mx_row = np.unravel_index(np.argmax(scr_list, axis=None), np.array(scr_list).shape)[0]
+mx_name = nm_list[mx_row]
+t_test__patterns(nm_list,scr_list,[('aconv_5x5','conv_5x5')])
+add_to_cumplot(scr_list,3,'r*',lab='mnist')
 
 resnet_clut_list = get_file_list('outputs/may2020/resnet/clut')
-plot_results(resnet_clut_list,[0.9,0.998])
-
+nm_list, scr_list =plot_results(resnet_clut_list,[0.9,0.998])
+mx_row = np.unravel_index(np.argmax(scr_list, axis=None), np.array(scr_list).shape)[0]
+mx_name = nm_list[mx_row]
+t_test__patterns(nm_list,scr_list,[('aconv_7x7','conv_7x7')])
+add_to_cumplot(scr_list,3,'gs',lab='clut')
 #resnet_fashion_list = get_file_list('outputs/may2020/resnet/fashion')
 #plot_results(resnet_fashion_list,[0.80,0.95])
 
-resnet_fashion_list = get_file_list('outputs/may2020/resnet/fashion/lr_01')
-plot_results(resnet_fashion_list,[0.80,0.95])
+resnet_fashion_list =resnet_fashion_list = get_file_list('outputs/may2020/resnet/fashion/lr_01')
+nm_list, scr_list=plot_results(resnet_fashion_list,[0.80,0.95])
+mx_row = np.unravel_index(np.argmax(scr_list, axis=None), np.array(scr_list).shape)[0]
+mx_name = nm_list[mx_row]
+t_test__patterns(nm_list,scr_list,[('aconv_7x7','conv_7x7')])
+add_to_cumplot(scr_list,3,'bs',lab='fashion')
 
 #resnet_cifar_list = get_file_list('outputs/may2020/resnet/cifar10_2')
 #plot_results(resnet_cifar_list,[0.59,0.93])
 
 resnet_cifar_list = get_file_list('outputs/may2020/resnet/cifar10_lr01')
-plot_results(resnet_cifar_list,[0.7,0.93])
+nm_list, scr_list=plot_results(resnet_cifar_list,[0.7,0.93])
+mx_row = np.unravel_index(np.argmax(scr_list, axis=None), np.array(scr_list).shape)[0]
+mx_name = nm_list[mx_row]
+t_test__patterns(nm_list,scr_list,[('aconv_5x5','conv_5x5')])
+add_to_cumplot(scr_list,3,'b>',lab='cifar10')
 
-resnet_faces_list = get_file_list('outputs/may2020/resnet/faces')
-plot_results(resnet_faces_list,[0.80,0.98])
+resnet_faces_list = get_file_list('outputs/may2020/resnet/faces/paper')
+nm_list, scr_list=plot_results(resnet_faces_list,[0.70,0.98])
+mx_row = np.unravel_index(np.argmax(scr_list, axis=None), np.array(scr_list).shape)[0]
+mx_name = nm_list[mx_row]
+nm_list, scr_list=plot_results(resnet_faces_list,ylims=None,name='loss')
+nm_list, scr_list=plot_results(resnet_faces_list,ylims=None,name='val_loss')
+t_test__patterns(nm_list,scr_list,[('aconv_3x3','conv_3x3')])
+add_to_cumplot(scr_list,3,'r^',lab='faces')
+
+
+#In[]:
+#resnet_faces_list = get_file_list('outputs/may2020/resnet/faces/drp_out')
+#nm_list, scr_list=plot_results(resnet_faces_list,[0.80,0.98])
+#adam result
+resnet_faces_list = get_file_list('/home/btek/Dropbox/code/pythoncode/AdaptiveCNN/outputs/aug2020/resnet')
+nm_list, scr_list=plot_results(resnet_faces_list,[0.80,0.98])
+nm_list, scr_list=plot_results(resnet_faces_list,ylims=None,name='loss')
+    
+
+# In[aug2020]:
+
+def add_to_cumplot(scr_list, i, m ,xlims=[0.9,1.0],ylims=[0.9,1.0],lab=None):
+    f = plt.figure(633)
+    ax = f.gca()
+    ax.plot([0.5,1.0],[0.5,1.0],'--', alpha=0.5)  
+    ax.plot(np.array(scr_list)[1:i], np.array(scr_list)[i+1:], m, alpha=0.5,label=lab)
+    ax.set_xlim(xlims)
+    ax.set_ylim(ylims)
+    f.legend()
+    
+
+
+
+mnist_list = get_file_list('outputs/aug2020/mnist')
+nm_list, scr_list = plot_results(mnist_list,[0.990,0.9965],name='val_accuracy')
+mx_row = np.unravel_index(np.argmax(scr_list, axis=None), np.array(scr_list).shape)[0]
+mx_name = nm_list[mx_row]
+t_test__patterns(nm_list,scr_list,[('aconv_9x9','conv_9x9')])
+plot_results(mnist_list,ylims=[0.,0.02],name='loss')
+plot_results(mnist_list,ylims=[0.015,0.03],name='val_loss')
+add_to_cumplot(scr_list,4,'r*',xlims=[0.75,1.0],ylims=[0.75,1.0],lab='mnist')
+
+cifar_list = get_file_list('outputs/aug2020/cifarlr01')
+nm_list, scr_list = plot_results(cifar_list,[0.75,0.8],name='val_accuracy')
+mx_row = np.unravel_index(np.argmax(scr_list, axis=None), np.array(scr_list).shape)[0]
+mx_name = nm_list[mx_row]
+t_test__patterns(nm_list,scr_list,[('aconv_9x9','conv_9x9')])
+plot_results(cifar_list,ylims=[0.1,0.6],name='loss')
+plot_results(cifar_list,ylims=[0.6,1.0],name='val_loss')
+add_to_cumplot(scr_list,4,'b+',xlims=[0.75,1.0],ylims=[0.75,1.0],lab='cifar')
+
+
+fashion_list = get_file_list('outputs/aug2020/fashion')
+nm_list, scr_list =plot_results(fashion_list,[0.925,0.941],name='val_accuracy')
+mx_row = np.unravel_index(np.argmax(scr_list, axis=None), np.array(scr_list).shape)[0]
+mx_name = nm_list[mx_row]
+t_test__patterns(nm_list,scr_list,[('aconv_7x7','conv_7x7')])
+plot_results(fashion_list,ylims=[0.01,0.3],name='loss')
+add_to_cumplot(scr_list,4,'cp',xlims=[0.75,1.0],ylims=[0.75,1.0],lab='fashion')
+
+clut_list = get_file_list('outputs/aug2020/mnist_clut')
+nm_list, scr_list =plot_results(clut_list,[0.82,0.96],name='val_accuracy')
+mx_row = np.unravel_index(np.argmax(scr_list, axis=None), np.array(scr_list).shape)[0]
+mx_name = nm_list[mx_row]
+t_test__patterns(nm_list,scr_list,[('aconv_9x9','conv_9x9')])
+plot_results(clut_list,ylims=[0.00,0.2],name='loss')
+add_to_cumplot(scr_list,4,'gs',xlims=[0.75,1.0],ylims=[0.75,1.0],lab='clut')
+
+faces_list = get_file_list('outputs/aug2020/faces/')
+nm_list, scr_list = plot_results(faces_list,[0.7,0.87],name='val_accuracy')
+mx_row = np.unravel_index(np.argmax(scr_list, axis=None), np.array(scr_list).shape)[0]
+mx_name = nm_list[mx_row]
+t_test__patterns(nm_list,scr_list,[('aconv_9x9','conv_9x9')])
+plot_results(faces_list,ylims=[.0,2.9],name='loss')
+plot_results(faces_list,ylims=[0.0,1.5],name='val_loss')
+add_to_cumplot(scr_list,4,'rd',xlims=[0.75,1.0],ylims=[0.75,1.0],lab='faces')
+
+plt.show()
+#faces_list = get_file_list('outputs/may2020/faces/lr001/sigma_decay_slower')
+#plot_results(faces_list,[0.75,0.86])
