@@ -1112,8 +1112,13 @@ def test_mnist(settings,sid=9):
     print('Test loss:', score[0])
     print('Test accuracy:', score[1])
     
+    
+    if not os.path.exists('outputs'):
+        print("creating output directory")
+        os.mkdir('outputs')
+        
     plot_output_dists=False
-    if test_acnn:
+    if test_acnn and plot_output_dists:
         np.savez('outputs/all_weights_after_train.npz',all_weights=model.get_weights())
         #a = keras.Model.load_weights('outputs/simp_aconv_model.h5')
         #print(a.shape)
@@ -1381,6 +1386,8 @@ if __name__ == '__main__':
     now = datetime.now()
     timestr = now.strftime("%Y%m%d-%H%M%S")
     ks = str(kwargs['adaptive_kernel_size'])+'x'+str(kwargs['adaptive_kernel_size'])
+    if not os.path.exists('outputs'):
+        os.mkdir('outputs')
     filename = 'outputs/'+kwargs['exname']+'_'+kwargs['arch']+'_'+kwargs['dset']+'_'+kwargs['test_layer']+'_'+ks+'_'+timestr+'_'+'._results.npz'
     np.savez_compressed(filename,mod=kwargs,mx_scores =r[0], results=r)
 
