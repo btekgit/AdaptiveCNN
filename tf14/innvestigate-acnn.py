@@ -69,7 +69,7 @@ import innvestigate.utils as iutils
 import matplotlib.pyplot as plt
 
 # Use utility libraries to focus on relevant iNNvestigate routines.
-mnistutils = imp.load_source("utils_mnist", "../innvestigate/examples/utils_mnist.py")
+mnistutils = imp.load_source("utils_mnist", "../../innvestigate/examples/utils_mnist.py")
 
 
 # In[ ]:
@@ -106,7 +106,7 @@ from keras_data import load_dataset
 #settings
 settings = {'dset':'fashion', 'arch':'simple', 'repeats':1, 
               'test_layer':'aconv',
-              'epochs':50, 'batch':128, 'exname':'noname', 
+              'epochs':1, 'batch':128, 'exname':'noname', 
               'adaptive_kernel_size':7, 'nfilters':32, 
               'data_augmentation':False, 'lr_multiplier':1.0}
 
@@ -130,6 +130,10 @@ x_train,y_train,x_test,y_test,input_shape,num_classes=ld_data
 # In[ ]:
 
 
+if not os.path.exists('outputs'):
+    print("creating output directory")
+    os.mkdir('outputs')
+print("creating output directory")
 sc, hs, model, cb = test_mnist(settings,sid=31+19*17)
 fname = 'outputs/'+settings['dset']+'_'+settings['test_layer']+'_'+str(
         settings['adaptive_kernel_size'])+'_Epc'+str(
@@ -301,7 +305,12 @@ for neuron_index in range(10):
     
 # ## Additional resources
 # 
-# If you would like to learn more we have more notebooks for you, for example: [Comparing methods on MNIST](mnist_method_comparison.ipynb), [Comparing methods on ImageNet](imagenet_method_comparison.ipynb) and [Comparing networks on ImageNet](imagenet_network_comparison.ipynb)
+# If you would like to learn more we have more notebooks for you, 
+# for example: [Comparing methods on MNIST]
+# (mnist_method_comparison.ipynb), 
+# [Comparing methods on ImageNet]
+# (imagenet_method_comparison.ipynb) and 
+# [Comparing networks on ImageNet](imagenet_network_comparison.ipynb)
 # 
 # If you want to know more about how to use the API of **iNNvestigate** look into: [Developing with iNNvestigate](introduction_development.ipynb)
 
@@ -363,8 +372,6 @@ for method in methods:
     
 # In[]
     
-
-
 n = 10
 preds = model.predict(x_test)
 pred_scores_ix = np.argsort(np.max(preds,axis=1))
@@ -414,7 +421,7 @@ for i, (x, y) in enumerate(test_images):
         
 # In[]
 
-eutils = imp.load_source("utils", "../innvestigate/examples/utils.py")
+eutils = imp.load_source("utils", "../../innvestigate/examples/utils.py")
 
 # Prepare the grid as rectengular list
 grid = [[analysis[i, j] for j in range(analysis.shape[1])]
