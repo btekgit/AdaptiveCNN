@@ -241,7 +241,8 @@ def test(settings,sid=9):
 
     if  settings['test_layer']=='aconv':
         ccp1 = ClipCallback('Sigma',[MIN_SIG,MAX_SIG])
-      
+        callbacks += [ccp1]
+        
     silent_mode = True
     if not silent_mode:
         from keras_utils import PrintLayerVariableStats
