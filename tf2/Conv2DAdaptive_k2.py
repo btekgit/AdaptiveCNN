@@ -239,6 +239,10 @@ class Conv2DAdaptive(Layer):
         masks = K.reshape(result,(self.kernel_size[0],
                                   self.kernel_size[1],
                                   1,self.filters))
+        
+        if self.input_channels>1:
+            masks = K.repeat_elements(masks, self.input_channels, axis=2)
+        
 
        #Normalize to 1
         if self.norm == 1:
@@ -1430,7 +1434,7 @@ if __name__ == '__main__':
     import sys
     kwargs = {'dset':'mnist', 'arch':'simple', 'repeats':1, 
               'test_layer':'conv',
-              'epochs':1, 'batch':128, 'exname':'noname', 
+              'epochs':20, 'batch':128, 'exname':'noname', 
               'adaptive_kernel_size':7, 'nfilters':32, 
               'data_augmentation':False, 'lr_multiplier':1.0}
     # For MNIST YOU CAN USE lr_multiplier 1.0, 
